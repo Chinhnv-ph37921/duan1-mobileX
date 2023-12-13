@@ -1,457 +1,421 @@
 <?php
 session_start();
-ob_start();
-include "view/head.php";
+require_once "controller/controller.php";
+
+//include dao để dùng các functione: 
+
 include "model/pdo.php";
-include "model/sanpham.php";
 include "model/loai.php";
+include "model/sanpham.php";
 include "model/nguoidung.php";
-include "model/giohang.php";
 include "model/hoadon.php";
-include "model/question.php";
-include "email/index.php";
-
-// kiểm tra session my cart đã tồn tại là 1 mảng chưa, nếu chưa thì khởi tạo 1 mảng mới
-if (!isset($_SESSION['mycart']))
-    $_SESSION['mycart'] = [];
-
-//load sản phẩm trang client
-$prohome = loadall_pro_home();
-
-//load danh mục trang client
-$listcate = loadall_cate();
-
-//load 8 sản phẩm nổi bật
-$list_topsp = loadall_pro_noibat();
-
-//load sản phẩm bán chạy
-$list_bestsp =  loadall_pro_best();
-
-//Lấy lại mật khẩu
-$mail = new Mailer();
-
-include "view/header.php";
-
-// kiểm tra có act tương ứng với key người dùng click không, nếu có act thì thực hiện các case 
-if (isset($_GET['act']) && ($_GET['act'] != "")) {
+include "model/binhluan.php";
+include "model/thongke.php";
+include "model/hoidap.php";
+// controller
+if (isset($_GET['act'])) {
     $act = $_GET['act'];
     switch ($act) {
-        case 'product':
-            if (isset($_POST['kyw']) && ($_POST['kyw']) != "") {
-                $kyw = $_POST['kyw'];
+        case '/':
+
+        case 'dashboard':
+            if (isset($_SESSION['admin'])) {
+                render('dashboard');
             } else {
-                $kyw = " ";
+                header("location: index.php?act=login");
             }
-            if (isset($_GET['idcate']) && ($_GET['idcate']) > 0) {
-                $idcate = $_GET['idcate'];
-            } else {
-                $idcate = 0;
-            }
-            $listpro = loadall_pro($kyw, $idcate);
-            $namecate = load_namecate($idcate);
-            include "view/sanpham/sanpham.php";
+            // render('dashboard');
             break;
-        case 'prodetail':
-            if (isset($_GET['idpro']) && $_GET['idpro'] > 0) {
-                $id_pro = $_GET['idpro'];
-                $one_pro = loadone_pro($id_pro);
-                extract($one_pro);
-                $similar_pro = similar_pro($id_pro, $idcate);
-                include "view/sanpham/sanphamct.php";
-
-                $seekey = 'post_' . $id_pro;
-                error_reporting(0);
-                $sessionView = $_SESSION[$seekey];
-                error_reporting(E_ALL);
-                if (!$sessionView) {
-                    $_SESSION[$seekey] = "1";
-                    updateview($id_pro);
-                } else {
-                    break;
-                }
-            } else {
-                include "view/sanpham/sanpham.php";
-            }
-            break;
-
-            // CONTROLLER ĐĂNG KÝ TÀI KHOẢN:
-
-        case "register":
-            if (isset($_POST['btn_register']) && $_POST['btn_register']) {
-                $user_name = $_POST['user_name'];
-                $full_name = $_POST['full_name'];
-                $email_user = $_POST['email_user'];
-                $password = $_POST['password'];
-                register($user_name, $full_name, $email_user, $password);
-                echo '<script>alert("Đăng ký tài khoản thành công! Vui lòng đăng nhập")</script>';
-                header('location: login.php');
-            }
-            include "view/nguoidung/register.php";
-            break;
-            // CONTROLLER ĐĂNG NHẬP TÀI KHOẢN:
-
-        case "login":
-            if (isset($_POST['btn_login']) && $_POST['btn_login']) {
-                $user_name = $_POST['user_name'];
-                $password = $_POST['password'];
-                $check_user = check_user($user_name, $password);
-                if (is_array($check_user)) {
-                    $_SESSION['user'] = $check_user;
-                    header('Location: index.php');
-                    echo '<script>alert("Đăng nhập thành công!")</script>';
-                } else {
-                    echo '<script>alert("Tài khoản sai hoặc không tồn tại!")</script>';
-                }
-            }
-            include "view/nguoidung/login.php";
-            break;
-            // đăng xuất tài khoản: 
         case 'logout':
             session_unset();
             header('Location: index.php?act=login');
             break;
-
-            //Quên mật khẩu:
-            //Form cách thức lấy lại mật khẩu
-        case 'mk':
-            include "view/nguoidung/cachthuclaymk.php";
-            break;
-
-            //Lấy lại mật khẩu thông qua User_name và Email_user
-        case "usermk":
-            if (isset($_POST['mk2']) && ($_POST['mk2'])) {
-                $name = $_POST['user_name'];
-                $email = $_POST['email'];
-                $checkuser = check_pass($name, $email);
-                if (is_array($checkuser)) {
-                    $thongbao = '<p class="text-success"> Mật khẩu của tài khoản "' . $name . '" là: <span class="fw-bold">' . $checkuser['password'] . '</span></p>';
-                } else {
-                    $thongbao = '<p class="text-danger fw-bold">Tài khoản hoặc Email không tồn tại! Vui lòng kiểm tra lại</p>';
-                }
-            }
-            include "view/nguoidung/laymk2.php";
-            break;
-            // Quên mật khẩu: Lấy lại mật khẩu thông qua mã xác nhận được gửi vào email
-        case 'forgotPass':
-            if (isset($_POST['btn_forgotPass'])) {
-                $error = array();
-                $email = $_POST['email'];
-                if ($email == "") {
-                    $error['email'] = 'Không để trống Email!';
-                }
-                if (empty($error)) {
-                    $result = getUserEmail($email);
-                    $code = substr(rand(0, 999999), 0, 6);
-                    $title = "Tìm lại mật khẩu của bạn";
-                    $content = "<p>Xin chào, chúng tôi đã nhận được yêu cầu đặt lại mật khẩu UltraPhone của bạn.<br>
-                                Nhập mã sau đây để đặt lại mật khẩu: <span style='color: black; font-weight: 600'>" . $code . "</span></p>";
-                    $mail->sendMail($title, $content, $email);
-                    $_SESSION['mail'] = $email;
-                    $_SESSION['code'] = $code;
-                    header('Location: index.php?act=verification');
-                }
-            }
-            include 'view/nguoidung/forgotpass.php';
-            break;
-            // Quên mật khẩu: Nhập mã xác minh mã được gửi qua Email
-        case 'verification':
-            include "view/nguoidung/verification.php";
-            break;
-
-            // Quên mật khẩu: Tạo mật khẩu mới để đăng nhập
-        case 'changePass':
-            if (isset($_POST['btn_changePass'])) {
-                $error = array();
-                $password = $_POST['newpass'];
-                $email = $_SESSION['mail'];
-                if ($_POST['repass'] != $_POST['newpass']) {
-                    $error['fail'] = 'Nhập lại mật khẩu không khớp !';
-                } else {
-                    $user = forgetPass($password, $email);
-                    //  echo '<script>alert("Đổi mật khẩu thành công! Vui lòng đăng nhập")</script>';
-                    header("location: index.php?act=login");
-                    $noti_success = "Đổi mật khẩu thành công! Vui lòng đăng nhập để mua hàng và thực hiện các chức năng khác.";
-                }
-            }
-            include "view/nguoidung/changePass.php";
-            break;
-
-            // CONTROLLER THÔNG TIN TÀI KHOẢN: 
-            // thông tin tài khoản
-        case 'myaccount':
-            if (isset($_SESSION['user'])) {
-                if (isset($_POST['btn_change']) && ($_POST['btn_change'])) {
-                    $id_user = $_POST['id_user'];
-                    $full_name = $_POST['full_name'];
-                    $user_name = $_SESSION['user']['user_name'];
-                    $password = $_SESSION['user']['password'];
-                    $sex = $_POST['sex'];
-                    $email_user = $_POST['email_user'];
-                    $address = $_POST['address'];
-                    $phone_user = $_POST['phone_user'];
-                    $img_user = $_FILES['img_user']['name'];
-                    $target_dir = "uploads/";
-                    $target_file = $target_dir . basename($_FILES["img_user"]["name"]);
-                    move_uploaded_file($_FILES["img_user"]["tmp_name"], $target_file);
-                    update_user($id_user, $img_user, $full_name, $sex, $email_user, $address, $phone_user);
-                    $_SESSION['user'] = check_user($user_name, $password);
-                    echo '<script>alert("Thay đổi thông tin thành công!")</script>';
-                    // header("location: index.php?act=myaccount");
-                }
-                if (isset($_POST['btn_pass'])) {
-                    $user_name = $_SESSION['user']['user_name'];
-                    $password = $_POST['newpass'];
-                    if ($password == "") {
-                        echo '<script>alert("Không được để trống mật khẩu mới !")</script>';
-                    } elseif ($_POST['repass'] != $_POST['newpass']) {
-                        echo '<script>alert("Nhập lại mật khẩu không khớp !")</script>';
-                    } else {
-                        $pass = updatePass($user_name, $password);
-                        echo '<script>alert("Đổi mật khẩu thành công !")</script>';
-                    }
-                }
+        case 'login':
+            if (isset($_SESSION['admin'])) {
+                header('location: index.php');
             } else {
-                header("Location: ?act=login");
-            }
-            $list_mybill = loadall_bill($_SESSION['user']['id_user']);
-            include "view/nguoidung/myaccount.php";
-            break;
-
-
-            // CONTROLLER GIỎ HÀNG:   
-            // xem giỏ hàng
-        case 'viewcart':
-            include "view/giohang/viewcart.php";
-            break;
-        case "edit":
-            // $total_price = 0;
-            foreach ($_SESSION['mycart'] as $k => $v) {
-                if ($_POST["code"] == $k) {
-                    if ($_POST["quantity"] == '0') {
-                        array_splice($_SESSION['mycart'], $k, 1);
+                if (isset($_POST['btn_login']) && $_POST['btn_login']) {
+                    $user_name = $_POST['user_name'];
+                    $password = $_POST['password'];
+                    if ($user_name == null || $password == null) {
+                        echo '<script>alert("Điền đầy đủ thông tin !")</script>';
                     } else {
-                        $_SESSION['mycart'][$k][4] = $_POST["quantity"];
-                        $_SESSION['mycart'][$k][5] = $_SESSION['mycart'][$k][3] * $_SESSION['mycart'][$k][4];
-                    }
-                }
-            }
-            break;
-            // thêm vào giỏ hàng
-        case 'addtocart':
-            if (isset($_POST['addtocart']) && $_POST['addtocart']) {
-                $id_pro = $_POST['id_pro'];
-                $name_pro = $_POST['name_pro'];
-                $img_pro = $_POST['img_pro'];
-                $price = $_POST['price'];
-                $check = 0;
-                if (isset($_POST['quatity']) && $_POST['quatity'] >= 1) {
-                    $quantity = $_POST['quatity'];
-                } else {
-                    $quantity = 1;
-                }
-                foreach ($_SESSION['mycart'] as $k => $w) {
-                    if ($id_pro == $_SESSION['mycart'][$k][0]) {
-                        $sl = $_SESSION['mycart'][$k][4];
-                        $_SESSION['mycart'][$k][4] = $sl + $quantity;
-                        $_SESSION['mycart'][$k][5] = $_SESSION['mycart'][$k][3] * $_SESSION['mycart'][$k][4];
-                        header("location: index.php?act=viewcart");
-                        $check = 1;
-                    }
-                }
-                if ($check == 0) {
-                    $total = $price * $quantity;
-                    $add_pro = [$id_pro, $name_pro, $img_pro, $price, $quantity, $total];
-                    array_push($_SESSION['mycart'], $add_pro);
-                    header("location: index.php?act=viewcart");
-                }
-            }
-            include "view/giohang/viewcart.php";
-            break;
-            // xóa sản phẩm trong giỏ hàng
-        case 'removecart':
-            if (isset($_GET['idcart'])) {
-                $idcart = $_GET['idcart'];
-                array_splice($_SESSION['mycart'], $idcart, 1);
-            } else {
-                $_SESSION['mycart'] = [];
-            }
-            header('location: index.php?act=viewcart');
-            break;
-            // tạo bill 
-        case 'bill':
-            if (isset($_SESSION['errorMessage'])) {
-                echo "<script type='text/javascript'>
-                        alert('" . $_SESSION['errorMessage'] . "');
-                      </script>";
-                unset($_SESSION['errorMessage']);
-            }
-            include "view/giohang/bill.php";
-            break;
-        case 'pay':
-            include "view/qr.php";
-            break;
-        case 'billconfirm':
-            if (isset($_POST['orderconfirm']) && ($_POST['orderconfirm'])) {
-                if (isset($_SESSION['user'])) {
-                    $randomNum = substr(str_shuffle("123456789"), 0, 5);
-                    $bill_code = $randomNum;
-                    $id_user = $_SESSION['user']['id_user'];
-                    $user_name = $_SESSION['user']['user_name'];
-                    $full_name = $_POST['full_name'];
-                    $address = $_POST['address'];
-                    $phone = $_POST['phone'];
-                    $email = $_POST['email'];
-                    $payment = $_POST['payment'];
-                    $order_date = date('Y/m/d h:i:s', time());
-                    $check_error = 0;
-                    $total_amount = total_amount();
-
-                    function validate_mobile($mobile)
-                    {
-                        return preg_match('/^[0-9]{10}+$/', $mobile);
-                    }
-                    function validate_email($email)
-                    {
-                        return preg_match('/^[_a-z0-9-]+(\.[_a-z0-9-]+)*@[a-z0-9-]+(\.[a-z0-9-]+)*.(\.[a-z]{2,4})$/',$email);
-                    }
-                    if (validate_mobile($phone) == 0) {
-                        $_SESSION['errorMessage'] = "Email không hợp lệ !";
-                        $check_error = 1;
-                    } 
-                    if (validate_mobile($phone) == 0) {
-                        $_SESSION['errorMessage'] = "Số điện thoại không đúng định dạng !";
-                        $check_error = 1;
-                    }
-                    if ($check_error == 0) {
-                        if ($total_amount > 0) {
-                            $_SESSION['idbill'] = $idbill = insert_bill($bill_code, $id_user, $user_name, $full_name, $address, $phone, $email, $payment, $order_date, $total_amount);
-                            $result = getUserEmail($email);
-                            $title = "Thông báo đặt hàng thành công!";
-                            $content = "<h3>Xin chào, cảm ơn quý khách đặt hàng tại mobileX.<br></h3>
-                            <h4>Thông tin người nhận:</h4>
-                            <p>Tên khách hàng: " . $full_name . "</p>
-                            <p>Email: " . $email . "</p>
-                            <p>Địa chỉ: " . $address . "</p>
-                            <p>Số điện thoại: " . $phone . "</p>
-                            <p>Ngày đặt hàng: " . $order_date . "</p>
-                            <p>Tổng tiền: " . number_format($total_amount) . "₫</p>
-                            ";
-                            $content .= "Chào mừng đến với  <a href='http://localhost/duan1/index.php'>mobileX! </a>";
-                            $mail->sendMail($title, $content, $email);
-                            $_SESSION['mail'] = $email;
-                            header('location: ?act=viewbill');
+                        $check = check_user_admin($user_name, $password);
+                        if (is_array($check)) {
+                            $_SESSION['admin'] = $check;
+                            echo '<script>alert("Đăng nhập thành công!")</script>';
+                            // sleep(10);
+                            header('Location: index.php');
                         } else {
-                            header('location: ?act=viewcart');
+                            echo '<script>alert("Tài khoản sai hoặc không tồn tại!")</script>';
                         }
-                    } else {
-                        header('location: ?act=bill');
                     }
+                }
+                render('login');
+            }
+            break;
+
+            // CONTROLLER LOẠI:
+        case "add_category":
+            if (isset($_SESSION['admin'])) {
+                if (isset($_POST['btn_add']) && ($_POST['btn_add'])) {
+                    $name_cate = $_POST['name_cate'];
+                    if ($name_cate == null) {
+                        echo '<script>alert("Vui lòng nhập đầy đủ !")</script>';
+                    } else {
+                        them_loai($name_cate);
+                        echo '<script>alert("Thêm loại thành công!")</script>';
+                    }
+                }
+                render('add_category');
+            } else {
+                header("location: index.php?act=login");
+            }
+
+            break;
+        case "list_category":
+
+            if (isset($_SESSION['admin'])) {
+                $ds_loai = loadall_loai();
+                render(
+                    'list_category',
+                    ['ds_loai' => $ds_loai]
+                );
+            } else {
+                header("location: index.php?act=login");
+            }
+
+            break;
+        case "edit_category":
+
+            if (isset($_SESSION['admin'])) {
+                if (isset($_GET['id_cate']) && ($_GET['id_cate'] > 0)) {
+                    $id_cate = $_GET['id_cate'];
+                    $one_loai = loadone_loai($id_cate);
+                }
+                render(
+                    'update_category',
+                    ['one_loai' => $one_loai]
+                );
+            } else {
+                header("location: index.php?act=login");
+            }
+
+            break;
+        case "update_category":
+            if (isset($_POST['btn_update']) && ($_POST['btn_update'])) {
+                $id_cate = $_POST['id_cate'];
+                $name_cate = $_POST['name_cate'];
+                capnhat_loai($id_cate, $name_cate);
+                echo '<script>alert("Cập nhật loại thành công!")</script>';
+            }
+            header('location:index.php?act=list_category');
+            break;
+        case "delete_cate":
+            if (isset($_GET['id_cate']) && ($_GET['id_cate'] > 0)) {
+                $id_cate = $_GET['id_cate'];
+                xoa_loai($id_cate);
+            }
+            header('location:index.php?act=list_category');
+            break;
+
+            // CONTROLLER SẢN PHẨM:
+        case "add_product":
+
+            if (isset($_SESSION['admin'])) {
+                if (isset($_POST['btn_add']) && ($_POST['btn_add'])) {
+                    // $id_pro = $_POST['id_pro'];
+                    $name_pro = $_POST['name_pro'];
+                    $price = $_POST['price'];
+                    $discount = $_POST['discount'];
+                    $short_des = $_POST['short_des'];
+                    $detail_des = $_POST['detail_des'];
+                    $idcate = $_POST['idcate'];
+                    $img_pro = $_FILES['img_pro']['name'];
+                    $target_dir = "./uploads/";
+                    $target_file = $target_dir . basename($_FILES["img_pro"]["name"]);
+                    $extension = pathinfo($img_pro, PATHINFO_EXTENSION);
+
+                    $allowed_extensions = array("jpg", "jpeg", "png", "gif");
+
+                    (move_uploaded_file($_FILES["img_pro"]["tmp_name"], $target_file));
+                    if ($name_pro == null || $price == null || $short_des == null || $idcate == null) {
+                        echo '<script>alert("Vui lòng nhập đầy đủ nội dung !")</script>';
+                    } elseif ($price <= 0) {
+                        echo '<script>alert("Giá nhập không đúng !")</script>';
+                    } elseif (!in_array($extension, $allowed_extensions)) {
+                        echo '<script>alert("File ảnh không phù hợp !")</script>';
+                    } else {
+                        add_pro($name_pro, $price, $discount, $img_pro, $short_des, $detail_des, $idcate);
+                        echo '<script>alert("Thêm sản phẩm thành công !")</script>';
+                    }
+                }
+                $ds_loai = loadall_loai();
+                render(
+                    'add_product',
+                    ['ds_loai' => $ds_loai]
+                );
+            } else {
+                header("location: index.php?act=login");
+            }
+
+            break;
+        case "list_product":
+
+            if (isset($_SESSION['admin'])) {
+                if (isset($_POST['btn_filter']) && ($_POST['btn_filter'])) {
+                    $idcate = $_POST['idcate'];
                 } else {
-                    echo '<script>alert("Bạn phải đăng nhập để đặt hàng!")</script>';
-                    header("location: index.php?act=login");
-                    // include "view/giohang/viewcart.php";
-                    break;
+                    $idcate = 0;
                 }
-                foreach ($_SESSION['mycart'] as $cart) {
-                    insert_cart($_SESSION['user']['id_user'], $_SESSION['user']['user_name'], $cart[0], $cart[2], $cart[1], $cart[3], $cart[4], $cart[5], $idbill);
-                }
-                $_SESSION['mycart'] = [];
-            }
-            $bill = loadone_bill($_SESSION['idbill']);
-            $cart_detail = loadall_cart($_SESSION['idbill']);
-            error_reporting(0);
-
-            if ($payment == 2 || $payment == 3) {
-                $_SESSION['pay'] = [$payment, $total_amount, $bill_code];
-                header('location: view/qr.php');
+                $ds_loai = loadall_loai();
+                $listpro = loadall_pro($idcate);
+                render(
+                    "list_product",
+                    ['ds_loai' => $ds_loai, 'listpro' => $listpro]
+                );
             } else {
-                $_SESSION['check'] = 1;
+                header("location: index.php?act=login");
             }
-            error_reporting(E_ALL);
-            unset($_SESSION['mycart']);
-            if ($_SESSION['check'] == 1 || $payment == 1) {
-                include "view/giohang/billconfirm.php";
-            }
+
             break;
+        case "edit_product":
 
-            // Hỏi đáp
-        case 'question':
-            if (isset($_POST['btn_question']) && ($_POST['btn_question'])) {
-                $name = $_POST['name'];
-                $email = $_POST['email'];
-                $phone = $_POST['phone'];
-                $contennt = $_POST['contennt'];
-                question($name, $email, $phone, $contennt);
-                echo '<script>alert("Gửi câu hỏi thành công !")</script>';
-            }
-            include "view/hoidap/question.php";
-            break;
-        case 'viewbill':
-            if (isset($_SESSION['user'])) {
-                $randomNum = substr(str_shuffle("123456789"), 0, 5);
-                $bill_code = $randomNum;
-                $id_user = $_SESSION['user']['id_user'];
-                $user_name = $_SESSION['user']['user_name'];
-                // $full_name = $_POST['full_name'];
-                // $address = $_POST['address'];
-                // $phone = $_POST['phone'];
-                // $email = $_POST['email'];
-                // $payment = $_POST['payment'];
-                $order_date = date('Y/m/d h:i:s', time());
-
-                $total_amount = total_amount();
-
-                if ($total_amount > 0) {
-                    $_SESSION['idbill'] = $idbill = insert_bill($bill_code, $id_user, $user_name, $full_name, $address, $phone, $email, $payment, $order_date, $total_amount);
-                    header('location: ?act=viewbill');
+            if (isset($_SESSION['admin'])) {
+                if (isset($_GET['id_pro']) && $_GET['id_pro'] > 0) {
+                    $id_pro = $_GET['id_pro'];
+                    $pro = loadone_pro($id_pro);
                 }
-            }
-            foreach ($_SESSION['mycart'] as $cart) {
-                insert_cart($_SESSION['user']['id_user'], $_SESSION['user']['user_name'], $cart[0], $cart[2], $cart[1], $cart[3], $cart[4], $cart[5], $idbill);
-            }
-            $_SESSION['mycart'] = [];
 
-            $bill = loadone_bill($_SESSION['idbill']);
-            $cart_detail = loadall_cart($_SESSION['idbill']);
-            error_reporting(0);
-
-            if ($payment == 2 || $payment == 3) {
-                $_SESSION['pay'] = [$payment, $total_amount, $bill_code];
-                header('location: view/qr.php');
+                $ds_loai = loadall_loai();
+                render(
+                    'update_product',
+                    ['ds_loai' => $ds_loai, 'pro' => $pro]
+                );
             } else {
-                $_SESSION['check'] = 1;
+                header("location: index.php?act=login");
             }
-            error_reporting(E_ALL);
-            if ($_SESSION['check'] == 1 || $payment == 1) {
-                include "view/giohang/billconfirm.php";
+
+            break;
+        case "update_product":
+            if (isset($_POST['btn_update']) && $_POST['btn_update'] > 0) {
+                $id_pro = $_POST['id_pro'];
+                $idcate = $_POST['idcate'];
+                $name_pro = $_POST['name_pro'];
+                $price = $_POST['price'];
+                $discount = $_POST['discount'];
+                $short_des = $_POST['short_des'];
+                $detail_des = $_POST['detail_des'];
+                $img_pro = $_FILES['img_pro']['name'];
+                $target_dir = "./uploads/";
+                $target_file = $target_dir . basename($_FILES["img_pro"]["name"]);
+                (move_uploaded_file($_FILES["img_pro"]["tmp_name"], $target_file));
+                update_pro($id_pro, $name_pro, $price, $discount, $short_des, $detail_des, $img_pro, $idcate);
+                echo '<script>alert("Cập nhật sản phẩm thành công!")</script>';
+                header('location:index.php?act=list_product');
             }
+            break;
+        case "delete_product":
+            if (isset($_GET['id_pro']) && ($_GET['id_pro']) > 0) {
+                $id_pro = $_GET['id_pro'];
+                remove_pro($id_pro);
+            }
+            header('location:index.php?act=list_product');
             break;
 
-            include "view/giohang/viewbill.php";
+            // CONTROLLER NGƯỜI DÙNG: 
+            // danh sách người dùng
+        case 'list_user':
+
+            if (isset($_SESSION['admin'])) {
+                $listuser = loadall_user();
+                render(
+                    'list_user',
+                    ['listuser' => $listuser]
+                );
+            } else {
+                header("location: index.php?act=login");
+            }
+
             break;
-                //Giới thiệu
-            case 'introduce':
-                include "view/gioithieu.php";
-                break;
-                //Liên hệ
-            case 'contact':
-                if (isset($_POST['btn_contact']) && ($_POST['btn_contact'])) {
-                    $name = $_POST['name'];
-                    $email = $_POST['email'];
-                    $phone = $_POST['phone'];
-                    $contennt = $_POST['contennt'];
-                    question($name, $email, $phone, $contennt);
-                    echo '<script>alert("Gửi câu hỏi thành công !")</script>';
+            // chỉnh sửa user
+        case 'edit_user':
+
+            if (isset($_SESSION['admin'])) {
+                if (isset($_GET['id_user']) && ($_GET['id_user'] > 0)) {
+                    $id_user = $_GET['id_user'];
+                    $user = loadone_user($id_user);
                 }
-                include "view/lienhe.php";
-                break;
+                render(
+                    'update_user',
+                    ['user' => $user]
+                );
+            } else {
+                header("location: index.php?act=login");
+            }
+
+            break;
+        case 'update_user':
+            if (isset($_POST['btn_update']) && ($_POST['btn_update'])) {
+                $id_user = $_POST['id_user'];
+                $user_name = $_POST['user_name'];
+                $full_name = $_POST['full_name'];
+                $email_user = $_POST['email_user'];
+                $password = $_POST['password'];
+                $role = $_POST['role'];
+                update_user($id_user, $user_name, $full_name, $email_user, $password, $role);
+                echo '<script>alert("Cập nhật tài khoản thành công!")</script>';
+            }
+            header('location: index.php?act=list_user');
+            break;
+            // Xóa người dùng
+        case "delete_usser":
+            if (isset($_GET['id_user']) && ($_GET['id_user'] > 0)) {
+                $id_user = $_GET['id_user'];
+                delete_user($id_user);
+            }
+            header('location:index.php?act=list_user');
+            break;
+
+            //CONTROLLER HÓA ĐƠN
+
+            // show all bill
+        case 'list_bill':
+
+            if (isset($_SESSION['admin'])) {
+                $listbill = loadall_bill(0);
+                render(
+                    'list_bill',
+                    ['listbill' => $listbill]
+                );
+            } else {
+                header("location: index.php?act=login");
+            }
+
+            break;
+            //     xóa bill: 
+            // case 'removebill':
+            //     if (isset($_GET['idbill']) && ($_GET['idbill'])) {
+            //         $idbill = $_GET['idbill'];
+            //         remove_bill($idbill);
+            //     }
+            //     $listbill = loadall_bill(0);
+            //     include "view/hoadon/list.php";
+            //     break;
+        case 'edit_bill':
+            if (isset($_SESSION['admin'])) {
+                if (isset($_GET['idbill']) && ($_GET['idbill']) > 0) {
+                    $idbill = $_GET['idbill'];
+                    $one_bill = loadone_bill($idbill);
+                }
+                render(
+                    'update_bill',
+                    ['one_bill' => $one_bill]
+                );
+            } else {
+                header("location: index.php?act=login");
+            }
+
+            break;
+        case 'update_bill':
+            if (isset($_POST['btn_update']) && ($_POST['btn_update'])) {
+                $id_bill = $_POST['id_bill'];
+                $status = $_POST['status'];
+                $status_pay = $_POST['status_pay'];
+                if ($status == 3) {
+                    $status_pay = 1;
+                }
+                update_bill($id_bill, $status, $status_pay);
+                echo '<script>alert("Cập nhật đơn hàng thành công!")</script>';
+                header('location:index.php?act=list_bill');
+            }
+            break;
+        case 'billdetail':
+            if (isset($_SESSION['admin'])) {
+                if (isset($_GET['idbill']) && ($_GET['idbill']) > 0) {
+                    $idbill = $_GET['idbill'];
+                    $one_bill = loadone_bill($idbill);
+                }
+                render(
+                    'billdetail',
+                    ['one_bill' => $one_bill]
+                );
+            } else {
+                header("location: index.php?act=login");
+            }
+
+            break;
+            //CONTROLLER BÌNH LUẬN
+            //show list: 
+        case 'list_cmt':
+            if (isset($_SESSION['admin'])) {
+                $listcmt = loadall_cmt();
+                render(
+                    'list_comment',
+                    ['listcmt' => $listcmt]
+                );
+            } else {
+                header("location: index.php?act=login");
+            }
+
+            break;
+            //xóa bì-nh luận: 
+        case 'delete_cmt':
+            if (isset($_GET['idcmt']) && ($_GET['idcmt']) > 0) {
+                $id_cmt = $_GET['idcmt'];
+                remove_cmt($id_cmt);
+            }
+            header('location: index.php?act=list_cmt');
+            break;
+
+            //CONTROLLER THỐNG KÊ
+            //list thống kê: 
+        case 'list_statis':
+            if (isset($_SESSION['admin'])) {
+                $liststatis = loadall_statis();
+                render(
+                    'list_statistic',
+                    ['liststatis' => $liststatis]
+                );
+            } else {
+                header("location: index.php?act=login");
+            }
+
+            break;
+            // Danh sách hỏi đáp
+        case 'list_ques':
+            if (isset($_SESSION['admin'])) {
+                $listques = question();
+                render(
+                    'list_question',
+                    ['listques' => $listques]
+                );
+            } else {
+                header("location: index.php?act=login");
+            }
+        break;
+           //xóa hỏi đáp: 
+           case 'delete_ques':
+            if (isset($_GET['id_ques']) && ($_GET['id_ques']) > 0) {
+                $id_ques = $_GET['id_ques'];
+                delete_ques($id_ques);
+            }
+            header('location: index.php?act=list_ques');
+            break;
+
         default:
-            include "view/content.php";
-            break;
+            if (isset($_SESSION['admin'])) {
+                render('dashboard');
+            } else {
+                header("location: index.php?act=login");
+            }
+            // render('dashboard');
     }
 } else {
-    include "view/content.php";
+    if (isset($_SESSION['admin'])) {
+        render('dashboard');
+    } else {
+        header("location: index.php?act=login");
+    }
+    // render('dashboard');
 }
-
-include "view/footer.php";
-ob_end_flush();
